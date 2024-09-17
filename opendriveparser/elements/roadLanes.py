@@ -184,7 +184,8 @@ class Lane(object):
     laneTypes = [
         "none", "driving", "stop", "shoulder", "biking", "sidewalk", "border",
         "restricted", "parking", "bidirectional", "median", "special1", "special2",
-        "special3", "roadWorks", "tram", "rail", "entry", "exit", "offRamp", "onRamp"
+        "special3", "roadWorks", "tram", "rail", "entry", "exit", "offRamp", "onRamp",
+        "walking", "curb", None
     ]
 
     def __init__(self):

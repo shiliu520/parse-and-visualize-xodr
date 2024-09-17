@@ -26,7 +26,7 @@ The parameters are given at the start of “parse_and_visualize.py” including:
 - XXXX_COLOR: colors of different lane types.
 - STEP: Sample steps while ploting.
 
-Directly run the main file:
+Directly run the main file (python 3.7 not surpport):
 
 ```
 python parse_and_visualize.py

@@ -3,27 +3,22 @@
 """
 
 
-import os
+import os, sys
 
 from lxml import etree
 from tqdm import tqdm
 
-from opendriveparser import parse_opendrive
+from opendriveparser import parse_opendrive, create_routing_graph
 from math import pi, sin, cos
-
-
-# Prepare the input file.
-XODR_FILE = "data/test.xodr"
-
 
 def to_color(r, g, b):
     return '#{:02x}{:02x}{:02x}'.format(r, g, b)
 
 
 # Prepare the colors.
-DRIVING_COLOR = (135, 151, 154)
+DRIVING_COLOR = (71, 77, 82)
 TYPE_COLOR_DICT = {
-    "shoulder": (136, 158, 131),
+    "shoulder": (143, 144, 148),
     "border": (84, 103, 80),
     "driving": DRIVING_COLOR,
     "stop": (128, 68, 59),
@@ -32,7 +27,7 @@ TYPE_COLOR_DICT = {
     "parking": DRIVING_COLOR,
     "median": (119, 155, 88),
     "biking": (108, 145, 125),
-    "sidewalk": (106, 159, 170),
+    "sidewalk": (118, 202, 129),
     "curb": (30, 49, 53),
     "exit": DRIVING_COLOR,
     "entry": DRIVING_COLOR,
@@ -41,6 +36,8 @@ TYPE_COLOR_DICT = {
     "connectingRamp": DRIVING_COLOR,
     "onRamp": DRIVING_COLOR,
     "bidirectional": DRIVING_COLOR,
+    "walking": (118, 202, 129),
+    None: (118, 202, 129)
 }
 TYPE_COLOR_DICT = {k: to_color(*v) for k, v in TYPE_COLOR_DICT.items()}
 COLOR_CENTER_LANE = "#FFC500"
@@ -50,7 +47,7 @@ COLOR_REFERECE_LINE = "#0000EE"
 STEP = 0.1
 
 
-def load_xodr_and_parse(file=XODR_FILE):
+def load_xodr_and_parse(file):
     """
     Load and parse .xodr file.
     :param file:
@@ -458,7 +455,7 @@ def get_all_lanes(road_network, step=0.1):
     roads = road_network.roads
     total_areas_all_roads = dict()
 
-    for road in tqdm(roads, desc="Calculating boundary points."):
+    for road in tqdm(roads, desc="Calculating boundary points "):
         lanes_of_one_road = get_lane_area_of_one_road(road, step=step)
         total_areas_all_roads = {**total_areas_all_roads, **lanes_of_one_road}
 
@@ -494,7 +491,7 @@ def rescale_color(hex_color, rate=0.5):
     return new_hex_color
 
 
-def plot_planes_of_roads(total_areas, save_folder):
+def plot_planes_of_roads(total_areas, save_path):
     """
     Plot the roads.
     :param total_areas:
@@ -511,7 +508,7 @@ def plot_planes_of_roads(total_areas, save_folder):
     all_types = set()
 
     # Plot lane area.
-    for k, v in tqdm(total_areas.items(), desc="Ploting Roads"):
+    for k, v in tqdm(total_areas.items(), desc="Ploting Roads               "):
         left_lanes_area = v["left_lanes_area"]
         right_lanes_area = v["right_lanes_area"]
 
@@ -545,7 +542,7 @@ def plot_planes_of_roads(total_areas, save_folder):
             plt.scatter(xs[::area_select], ys[::area_select], color=rescale_color(lane_color, 0.5), s=1)
 
     # Plot boundaries
-    for k, v in tqdm(total_areas.items(), desc="Ploting Edges"):
+    for k, v in tqdm(total_areas.items(), desc="Ploting Edges               "):
         left_lanes_area = v["left_lanes_area"]
         right_lanes_area = v["right_lanes_area"]
 
@@ -611,10 +608,9 @@ def plot_planes_of_roads(total_areas, save_folder):
     plt.ylabel("y")
     plt.axis("equal")
 
-    os.makedirs(save_folder, exist_ok=True)
-    save_pdf_file = os.path.join(save_folder, "lanes.pdf")
-    plt.savefig(save_pdf_file)
-
+    # os.makedirs(save_folder, exist_ok=True)
+    # save_pdf_file = os.path.join(save_folder, "lanes.pdf")
+    plt.savefig(save_path, dpi = 300)
 
 def process_one_file(file, step=0.1):
     """
@@ -627,17 +623,30 @@ def process_one_file(file, step=0.1):
     assert os.path.exists(file), FileNotFoundError(file)
     d, ne = os.path.split(file)
     n, e = os.path.splitext(ne)
-    save_folder = os.path.join(d, n)
+    # save_folder = os.path.join(d, n)
+    save_folder = d
+    save_path = os.path.join(save_folder, n + ".pdf")
 
     road_network = load_xodr_and_parse(file)
-    total_areas = get_all_lanes(road_network, step=step)
+    # print("total road nums: ", len(road_network.roads))
+    # total_areas = get_all_lanes(road_network, step=step)
+    # plot_planes_of_roads(total_areas, save_path)
 
-    plot_planes_of_roads(total_areas, save_folder)
+    create_routing_graph(road_network)
 
 
 def main():
-    process_one_file(file=XODR_FILE)
+    # Prepare the input file.
+    odr_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 
+    if len(sys.argv) > 1:
+       for arg in sys.argv[1:]:
+        XODR_FILE = sys.argv[1]
+    else:
+        odr_name = "UC_5Road_Junction.xodr"
+        XODR_FILE = os.path.join(odr_dir, odr_name)
+        # print(XODR_FILE)
+    process_one_file(XODR_FILE)
 
 if __name__ == "__main__":
     main()

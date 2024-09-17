@@ -1,5 +1,6 @@
 
 import numpy as np
+import networkx as nx
 from lxml import etree
 
 from opendriveparser.elements.openDrive import OpenDrive
@@ -123,7 +124,7 @@ def parse_opendrive(rootNode):
             newType.sPos = roadType.get("s")
             newType.type = roadType.get("type")
 
-            if roadType.find("speed"):
+            if roadType.find("speed") != None:
 
                 newSpeed = RoadTypeSpeed()
 
@@ -384,3 +385,134 @@ def parse_opendrive(rootNode):
         newOpenDrive.roads.append(newRoad)
 
     return newOpenDrive
+
+def get_adjacent_lanesection(road, roads, lanesection, lanesections, backward_search):
+    if backward_search:
+        # 上一个lanesection
+        if lanesection.idx > 0:
+            prev_lanesection = lanesections[lanesection.idx - 1]
+            return road, prev_lanesection
+        else:
+            road_link = road.link.predecessor
+    else:
+        # 下一个lanesection
+        if lanesection.idx < len(lanesections) - 1:
+            next_lanesection = lanesections[lanesection.idx + 1]
+            return road, next_lanesection
+        else:
+            road_link = road.link.successor
+    if (not road_link == None and road_link.elementType == "road" and road_link.contactPoint in ["start", "end"]):
+        road_ids = [road.id for road in roads]
+        target_road = roads[road_ids.index(road_link.elementId)]
+        lanes_road = target_road.lanes
+        lanesections = lanes_road.laneSections
+        if road_link.contactPoint == "start":
+            target_lanesection = lanesections[0]
+        else:
+            target_lanesection = lanesections[-1]
+        return target_road, target_lanesection
+    else:
+        return None, None
+
+def get_connecting_lane(lane, target_lanesection, backward_search):
+    if (target_lanesection):
+        if backward_search:
+            target_lane_id = lane.link.predecessorId
+        else:
+            target_lane_id = lane.link.successorId
+        lane_ids = [lane.id for lane in target_lanesection.allLanes]
+        try:
+            target_lane = target_lanesection.allLanes[lane_ids.index(target_lane_id)]
+            return target_lane
+        except ValueError:
+            return None
+    else:
+        return None
+
+def create_routing_graph(OpenDrive: OpenDrive):
+    graph = nx.DiGraph()
+    roads = OpenDrive.roads
+    junctions = OpenDrive.junctions
+
+    # add edges for each (road, lanesection, lane) -> (road, lanesection, lane)
+    for road in roads:
+        lanes_road = road.lanes
+        lanesections = lanes_road.laneSections
+        for lanesection in lanesections:
+            prev_road, prev_lanesection = get_adjacent_lanesection(road, roads, lanesection, lanesections, True)
+            next_road, next_lanesection = get_adjacent_lanesection(road, roads, lanesection, lanesections, False)
+
+            # lanes = lanesection.leftLanes + lanesection.rightLanes
+            lanes = lanesection.leftLanes + lanesection.centerLanes + lanesection.rightLanes
+            for lane in lanes:
+                # print(road.id, lanesection.sPos, lane.id)
+
+                lane_follows_road_direction = lane.id < 0
+                if (lane_follows_road_direction):
+                    predecessor = get_connecting_lane(lane, prev_lanesection, True)
+                    successor = get_connecting_lane(lane, next_lanesection, False)
+                    if predecessor:
+                        graph.add_edge((prev_road.id, prev_lanesection.sPos, predecessor.id),
+                                    (road.id, lanesection.sPos, lane.id), length=prev_lanesection.length)
+                        start_point = (prev_road.id, prev_lanesection.sPos, predecessor.id)
+                        end_point = (road.id, lanesection.sPos, lane.id)
+                        length = prev_lanesection.length
+                        print(start_point[0], f"{start_point[1]:.5f}", start_point[2], end_point[0], f"{end_point[1]:.5f}", end_point[2], f"{length:.5f}", sep=',')
+                    if successor:
+                        graph.add_edge((road.id, lanesection.sPos, lane.id),
+                                    (next_road.id, next_lanesection.sPos, successor.id), length=lanesection.length)
+                        start_point = (road.id, lanesection.sPos, lane.id)
+                        end_point = (next_road.id, next_lanesection.sPos, successor.id)
+                        length = lanesection.length
+                        print(start_point[0], f"{start_point[1]:.5f}", start_point[2], end_point[0], f"{end_point[1]:.5f}", end_point[2], f"{length:.5f}", sep=',')
+                else:
+                    predecessor = get_connecting_lane(lane, next_lanesection, False)
+                    successor = get_connecting_lane(lane, prev_lanesection, True)
+                    if predecessor:
+                        graph.add_edge((next_road.id, next_lanesection.sPos, predecessor.id),
+                                    (road.id, lanesection.sPos, lane.id), length=next_lanesection.length)
+                        start_point = (next_road.id, next_lanesection.sPos, predecessor.id)
+                        end_point = (road.id, lanesection.sPos, lane.id)
+                        length = next_lanesection.length
+                        print(start_point[0], f"{start_point[1]:.5f}", start_point[2], end_point[0], f"{end_point[1]:.5f}", end_point[2], f"{length:.5f}", sep=',')
+                    if successor:
+                        graph.add_edge((road.id, lanesection.sPos, lane.id),
+                                    (prev_road.id, prev_lanesection.sPos, successor.id), length=lanesection.length)
+                        start_point = (road.id, lanesection.sPos, lane.id)
+                        end_point = (prev_road.id, prev_lanesection.sPos, successor.id)
+                        length = lanesection.length
+                        print(start_point[0], f"{start_point[1]:.5f}", start_point[2], end_point[0], f"{end_point[1]:.5f}", end_point[2], f"{length:.5f}", sep=',')
+
+    # print("pause for debug.")
+    for junction in junctions:
+        connections = junction.connections
+        for connection in connections:
+            incomingRoad = OpenDrive.getRoad(connection.incomingRoad)
+            connectingRoad = OpenDrive.getRoad(connection.connectingRoad)
+            is_succ_junc = incomingRoad.link.successor != None and incomingRoad.link.successor.elementType == "junction" and incomingRoad.link.successor.elementId == junction.id
+            is_pred_junc = incomingRoad.link.predecessor != None and incomingRoad.link.predecessor.elementType == "junction" and incomingRoad.link.predecessor.elementId == junction.id
+            if (not (is_succ_junc or is_pred_junc)):
+                continue
+
+            if is_succ_junc:
+                incoming_lanesec = incomingRoad.lanes.laneSections[-1]
+            else:
+                incoming_lanesec = incomingRoad.lanes.laneSections[0]
+
+            if connection.contactPoint == "start":
+                connecting_lanesec = connectingRoad.lanes.laneSections[0]
+            else:
+                connecting_lanesec = connectingRoad.lanes.laneSections[-1]
+
+            laneLinks = connection.laneLinks
+            for laneLink in laneLinks:
+                if laneLink.fromId == 0 or laneLink.toId == 0:
+                    continue
+                from_lane = incoming_lanesec.getLane(laneLink.fromId)
+                to_lane = connecting_lanesec.getLane(laneLink.toId)
+                start_point = (connection.incomingRoad, incoming_lanesec.sPos, from_lane.id)
+                end_point = (connection.connectingRoad, connecting_lanesec.sPos, to_lane.id)
+                lane_length = incoming_lanesec.length
+                graph.add_edge((connection.incomingRoad, incoming_lanesec.sPos, from_lane.id),
+                                        (connection.connectingRoad, connecting_lanesec.sPos, to_lane.id), length=lane_length)
+                print(start_point[0], f"{start_point[1]:.5f}", start_point[2], end_point[0], f"{end_point[1]:.5f}", end_point[2], f"{lane_length:.5f}", sep=',')
