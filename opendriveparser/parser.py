@@ -457,14 +457,14 @@ def create_routing_graph(OpenDrive: OpenDrive):
                         start_point = (prev_road.id, prev_lanesection.sPos, predecessor.id)
                         end_point = (road.id, lanesection.sPos, lane.id)
                         length = prev_lanesection.length
-                        print(start_point[0], f"{start_point[1]:.5f}", start_point[2], end_point[0], f"{end_point[1]:.5f}", end_point[2], f"{length:.5f}", sep=',')
+                        # print(start_point[0], f"{start_point[1]:.5f}", start_point[2], end_point[0], f"{end_point[1]:.5f}", end_point[2], f"{length:.5f}", sep=',')
                     if successor:
                         graph.add_edge((road.id, lanesection.sPos, lane.id),
                                     (next_road.id, next_lanesection.sPos, successor.id), length=lanesection.length)
                         start_point = (road.id, lanesection.sPos, lane.id)
                         end_point = (next_road.id, next_lanesection.sPos, successor.id)
                         length = lanesection.length
-                        print(start_point[0], f"{start_point[1]:.5f}", start_point[2], end_point[0], f"{end_point[1]:.5f}", end_point[2], f"{length:.5f}", sep=',')
+                        # print(start_point[0], f"{start_point[1]:.5f}", start_point[2], end_point[0], f"{end_point[1]:.5f}", end_point[2], f"{length:.5f}", sep=',')
                 else:
                     predecessor = get_connecting_lane(lane, next_lanesection, False)
                     successor = get_connecting_lane(lane, prev_lanesection, True)
@@ -474,14 +474,14 @@ def create_routing_graph(OpenDrive: OpenDrive):
                         start_point = (next_road.id, next_lanesection.sPos, predecessor.id)
                         end_point = (road.id, lanesection.sPos, lane.id)
                         length = next_lanesection.length
-                        print(start_point[0], f"{start_point[1]:.5f}", start_point[2], end_point[0], f"{end_point[1]:.5f}", end_point[2], f"{length:.5f}", sep=',')
+                        # print(start_point[0], f"{start_point[1]:.5f}", start_point[2], end_point[0], f"{end_point[1]:.5f}", end_point[2], f"{length:.5f}", sep=',')
                     if successor:
                         graph.add_edge((road.id, lanesection.sPos, lane.id),
                                     (prev_road.id, prev_lanesection.sPos, successor.id), length=lanesection.length)
                         start_point = (road.id, lanesection.sPos, lane.id)
                         end_point = (prev_road.id, prev_lanesection.sPos, successor.id)
                         length = lanesection.length
-                        print(start_point[0], f"{start_point[1]:.5f}", start_point[2], end_point[0], f"{end_point[1]:.5f}", end_point[2], f"{length:.5f}", sep=',')
+                        # print(start_point[0], f"{start_point[1]:.5f}", start_point[2], end_point[0], f"{end_point[1]:.5f}", end_point[2], f"{length:.5f}", sep=',')
 
     # print("pause for debug.")
     for junction in junctions:
@@ -515,4 +515,6 @@ def create_routing_graph(OpenDrive: OpenDrive):
                 lane_length = incoming_lanesec.length
                 graph.add_edge((connection.incomingRoad, incoming_lanesec.sPos, from_lane.id),
                                         (connection.connectingRoad, connecting_lanesec.sPos, to_lane.id), length=lane_length)
-                print(start_point[0], f"{start_point[1]:.5f}", start_point[2], end_point[0], f"{end_point[1]:.5f}", end_point[2], f"{lane_length:.5f}", sep=',')
+                # print(start_point[0], f"{start_point[1]:.5f}", start_point[2], end_point[0], f"{end_point[1]:.5f}", end_point[2], f"{lane_length:.5f}", sep=',')
+
+        return graph
