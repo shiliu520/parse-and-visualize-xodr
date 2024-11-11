@@ -12,6 +12,7 @@ from opendriveparser import parse_opendrive, create_routing_graph
 from math import pi, sin, cos, sqrt, acos
 
 import numpy as np
+import matplotlib.path as mpath
 
 def to_color(r, g, b):
     return '#{:02x}{:02x}{:02x}'.format(r, g, b)
@@ -139,7 +140,7 @@ def get_all_reference_points_of_one_road(geometries, step=0.01):
 def get_width(widths, s):
     assert isinstance(widths, list), TypeError(type(widths))
     widths.sort(key=lambda x: x.sOffset)
-    current_width = None
+    current_width = 0.0
     # EPS = 1e-5
     milestones = [width.sOffset for width in widths] + [float("inf")]
 
@@ -369,12 +370,25 @@ def point_to_linedistance_2D(px, py, lx0, ly0, lx1, ly1):
     l0Length = sqrt(l0x * l0x + l0y * l0y)
     return cp / l0Length
 
+def point_in_lane(x0, y0, lane_area):
+    for lane_id, lane_points in lane_area.items():
+        inner_points = lane_points['inner']
+        outer_points = lane_points['outer']
+        points_of_one_road = inner_points + outer_points[::-1]
+        xs = [i for i, _ in points_of_one_road]
+        ys = [i for _, i in points_of_one_road]
+        polygon_vertices = list(zip(xs, ys))
+        path = mpath.Path(polygon_vertices)
+        if path.contains_point((x0, y0)):
+            return lane_id
+    return None
+
 def get_area_st(road, area, x, y):
     reference_points = area['reference_points']
     if reference_points.get('position') is not None:
         reference_points_pos = reference_points['position']
     else:
-        return None, None, None, None
+        return None, None, None, None, None
     reference_points_dist = [eucid_distance(point, (x, y)) for point in reference_points_pos]
     reference_points_dist_min = min(reference_points_dist)
     reference_points_dist_min_index = reference_points_dist.index(reference_points_dist_min)
@@ -394,7 +408,7 @@ def get_area_st(road, area, x, y):
 
     # 只有一个点，va_x = va_y = 0
     if (len(current_reference_points)) == 1:
-        return reference_points['s_road'][reference_points_dist_min_index], t, match_point_x, match_point_y
+        return reference_points['s_road'][reference_points_dist_min_index], t, match_point_x, match_point_y, None
 
     x1 = current_reference_points[0][0]
     y1 = current_reference_points[0][1]
@@ -426,9 +440,55 @@ def get_area_st(road, area, x, y):
     most_left_point_t = point_to_linedistance_2D(most_left_point[0], most_left_point[1], match_point_x, match_point_y, match_point_x + cos(hdg), match_point_y + sin(hdg))
     most_right_point_t = point_to_linedistance_2D(most_right_point[0], most_right_point[1], match_point_x, match_point_y, match_point_x + cos(hdg), match_point_y + sin(hdg))
     if (90 - degrees) < -0.05 or t < most_right_point_t or t > most_left_point_t:
-        return None, None, None, None
+        return None, None, None, None, None
 
-    return reference_points['s_road'][reference_points_dist_min_index], t, match_point_x, match_point_y
+    # lane_section = lanesections[lanesec_index]
+    # all_lanes = lane_section.allLanes
+    # all_lanes.sort(reverse=True, key=lambda x: x.id)
+    # left_lanes_width = []
+    # right_lanes_width = []
+    # for lane in all_lanes:
+    #     width_coef = lane.widths
+    #     width = get_width(width_coef, reference_points['s_lane_section'][reference_points_dist_min_index])
+    #     if (lane.id >= 0):
+    #         left_lanes_width.append((lane.id, width))
+    #     else:
+    #         right_lanes_width.append((lane.id, width))
+    # left_lanes_width_sorted_data = sorted(left_lanes_width, key=lambda x: x[0])
+    # left_lanes_width_array = np.array([width for _, width in left_lanes_width_sorted_data])
+    # left_lanes_cumulative_sums = np.cumsum(left_lanes_width_array)
+    # left_lanes_cumulative_sums = np.sort(left_lanes_cumulative_sums)[::-1]
+    # right_lanes_width_array = np.array([-width for _, width in right_lanes_width])
+    # right_lanes_cumulative_sums =  np.cumsum(right_lanes_width_array)
+    # right_lanes_cumulative_sums = np.sort(right_lanes_cumulative_sums)[::-1]
+    # lanes_bound_t = np.hstack((left_lanes_cumulative_sums, right_lanes_cumulative_sums))
+    # lanes_id = [lane.id for lane in all_lanes]
+    if t > 0:
+        lane_id = point_in_lane(x, y, area['left_lanes_area'])
+    else:
+        lane_id = point_in_lane(x, y, area['right_lanes_area'])
+
+    return reference_points['s_road'][reference_points_dist_min_index], t, match_point_x, match_point_y, lane_id
+
+def get_map_st(road_network, total_areas, x, y):
+    possible_match_point_dist = []
+    possible_match_points = []
+    for road_lanesc, area in total_areas.items():
+        road = get_road_with_id(road_network, road_lanesc[0])
+        match_point_s, match_point_t, match_point_x, match_point_y, lane_id= get_area_st(road, area, x, y)
+        if not (match_point_s is None and match_point_t is None and match_point_x is None and match_point_y is None):
+           possible_match_point_dist.append(eucid_distance((match_point_x, match_point_y), (x, y)))
+           possible_match_points.append((*road_lanesc, match_point_s, match_point_t, lane_id))
+        #    print("road: {0}, , s: {1:.2f}, t: {2:.2f}".format(road_lanesc[0], match_point_s, match_point_t))
+    match_point_index = possible_match_point_dist.index(min(possible_match_point_dist))
+    road_id, lanesection_index, match_point_s, match_point_t, lane_id = possible_match_points[match_point_index]
+    for road in road_network.roads:
+        if road.id == road_id:
+            lanes_road = road.lanes
+            lanesections = lanes_road.laneSections
+            lanesection_s0 = lanesections[lanesection_index].sPos
+
+    return road_id, lanesection_s0, lane_id, match_point_s, match_point_t
 
 def get_lane_line(section_data: dict):
     """
@@ -720,27 +780,30 @@ def process_one_file(file, step=0.1):
     road_network_topo_graph = create_routing_graph(road_network)
     # x = 251.93
     # y = -334.39
-    x = 64.09
-    y = -56.63
-    possible_match_point_dist = []
-    possible_match_points = []
-    for road_lanesc, area in total_areas.items():
-        road = get_road_with_id(road_network, road_lanesc[0])
-        match_point_s, match_point_t, match_point_x, match_point_y= get_area_st(road, area, x, y)
-        if not (match_point_s is None and match_point_t is None and match_point_x is None and match_point_y is None):
-           possible_match_point_dist.append(eucid_distance((match_point_x, match_point_y), (x, y)))
-           possible_match_points.append((*road_lanesc, match_point_s, match_point_t))
-        #    print("road: {0}, , s: {1:.2f}, t: {2:.2f}".format(road_lanesc[0], match_point_s, match_point_t))
-    match_point_index = possible_match_point_dist.index(min(possible_match_point_dist))
-    road_id, lanesection_index, match_point_s, match_point_t = possible_match_points[match_point_index]
-    for road in road_network.roads:
-        if road.id == road_id:
-            lanes_road = road.lanes
-            lanesections = lanes_road.laneSections
-            lanesection_s0 = lanesections[lanesection_index].sPos
-    print(" "*80)
-    print("*"*80)
-    print("road: {0}, lanesection_s0: {1:.2f}, s: {2:.2f}, t: {3:.2f}, x: {4:.2f}, y: {5:.2f}".format(road_id, lanesection_s0, match_point_s, match_point_t, x, y))
+    x = 131.55
+    y = 58.74
+    # possible_match_point_dist = []
+    # possible_match_points = []
+    # for road_lanesc, area in total_areas.items():
+    #     road = get_road_with_id(road_network, road_lanesc[0])
+    #     match_point_s, match_point_t, match_point_x, match_point_y= get_area_st(road, area, x, y)
+    #     if not (match_point_s is None and match_point_t is None and match_point_x is None and match_point_y is None):
+    #        possible_match_point_dist.append(eucid_distance((match_point_x, match_point_y), (x, y)))
+    #        possible_match_points.append((*road_lanesc, match_point_s, match_point_t))
+    #     #    print("road: {0}, , s: {1:.2f}, t: {2:.2f}".format(road_lanesc[0], match_point_s, match_point_t))
+    # match_point_index = possible_match_point_dist.index(min(possible_match_point_dist))
+    # road_id, lanesection_index, match_point_s, match_point_t = possible_match_points[match_point_index]
+    # for road in road_network.roads:
+    #     if road.id == road_id:
+    #         lanes_road = road.lanes
+    #         lanesections = lanes_road.laneSections
+    #         lanesection_s0 = lanesections[lanesection_index].sPos
+    # print(" "*80)
+    # print("*"*80)
+    # print("road: {0}, lanesection_s0: {1:.2f}, s: {2:.2f}, t: {3:.2f}, x: {4:.2f}, y: {5:.2f}".format(road_id, lanesection_s0, match_point_s, match_point_t, x, y))
+
+    road_id, lanesection_s0, lane_id, match_point_s, match_point_t = get_map_st(road_network, total_areas, x, y)
+    print("road: {0}, lanesection_s0: {1:.2f}, lane_id: {2}, s: {3:.2f}, t: {4:.2f}, x: {5:.2f}, y: {6:.2f}".format(road_id, lanesection_s0, lane_id, match_point_s, match_point_t, x, y))
 
 
 def main():
@@ -751,7 +814,7 @@ def main():
        for arg in sys.argv[1:]:
         XODR_FILE = sys.argv[1]
     else:
-        odr_name = "Town01.xodr"
+        odr_name = "Town04.xodr"
         XODR_FILE = os.path.join(odr_dir, odr_name)
         print(XODR_FILE)
     process_one_file(XODR_FILE)
