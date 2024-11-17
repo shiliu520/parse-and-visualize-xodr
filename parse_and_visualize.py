@@ -4,15 +4,13 @@
 
 
 import os, sys, pdb, warnings
-
+import numpy as np
 from lxml import etree
 from tqdm import tqdm
-
-from opendriveparser import parse_opendrive, create_routing_graph
-from math import pi, sin, cos, sqrt, acos
-
-import numpy as np
 import matplotlib.path as mpath
+
+from math import pi, sin, cos, sqrt, acos
+from opendriveparser import parse_opendrive, create_routing_graph, dijkstra_search
 
 def to_color(r, g, b):
     return '#{:02x}{:02x}{:02x}'.format(r, g, b)
@@ -635,7 +633,7 @@ def rescale_color(hex_color, rate=0.5):
     return new_hex_color
 
 
-def plot_planes_of_roads(total_areas, save_path):
+def plot_planes_of_roads(total_areas, save_path, road_network, path):
     """
     Plot the roads.
     :param total_areas:
@@ -644,7 +642,7 @@ def plot_planes_of_roads(total_areas, save_path):
     """
 
     import matplotlib.pyplot as plt
-    plt.cla()
+    # plt.cla()
 
     plt.figure(figsize=(160, 90))
     area_select = 10  # select one from 10 boundary points for accelerating.
@@ -687,6 +685,12 @@ def plot_planes_of_roads(total_areas, save_path):
 
     # Plot boundaries
     for k, v in tqdm(total_areas.items(), desc="Ploting Edges               "):
+        road_id, lane_sec_idx = k
+        road = get_road_with_id(road_network, road_id)
+        lane_sections = road.lanes.laneSections
+        lane_sections = list(sorted(lane_sections, key=lambda x: x.sPos))
+        lane_section_s0 = lane_sections[lane_sec_idx].sPos
+
         left_lanes_area = v["left_lanes_area"]
         right_lanes_area = v["right_lanes_area"]
 
@@ -701,6 +705,14 @@ def plot_planes_of_roads(total_areas, save_path):
             xs = [i for i, _ in points_of_one_road]
             ys = [i for _, i in points_of_one_road]
             plt.scatter(xs[::area_select], ys[::area_select], color=rescale_color(lane_color, 0.5), s=1)
+            if (road_id, lane_section_s0, left_lane_id) in path:
+                x_inner = [i for i, _ in inner_points]
+                y_inner = [i for _, i in inner_points]
+                x_outer = [i for i, _ in outer_points]
+                y_outer = [i for _, i in outer_points]
+                x_center_path = (np.array(x_inner) + np.array(x_outer)) / 2.0
+                y_center_path = (np.array(y_inner) + np.array(y_outer)) / 2.0
+                plt.scatter(x_center_path, y_center_path, color = 'r', s = 1.5 )
 
         for right_lane_id, right_lane_area in right_lanes_area.items():
             type_of_lane = types[right_lane_id]
@@ -712,6 +724,14 @@ def plot_planes_of_roads(total_areas, save_path):
             xs = [i for i, _ in points_of_one_road]
             ys = [i for _, i in points_of_one_road]
             plt.scatter(xs[::area_select], ys[::area_select], color=rescale_color(lane_color, 0.5), s=1)
+            if (road_id, lane_section_s0, right_lane_id) in path:
+                x_inner = [i for i, _ in inner_points]
+                y_inner = [i for _, i in inner_points]
+                x_outer = [i for i, _ in outer_points]
+                y_outer = [i for _, i in outer_points]
+                x_center_path = (np.array(x_inner) + np.array(x_outer)) / 2.0
+                y_center_path = (np.array(y_inner) + np.array(y_outer)) / 2.0
+                plt.scatter(x_center_path, y_center_path, color = 'r', s = 1.5 )
 
     # Plot center lane and reference line.
     saved_ceter_lanes = dict()
@@ -775,13 +795,13 @@ def process_one_file(file, step=0.1):
     road_network = load_xodr_and_parse(file)
     print("total road nums: ", len(road_network.roads), ", total junction nums: ", len(road_network.junctions))
     total_areas = get_all_lanes(road_network, step=step)
-    # plot_planes_of_roads(total_areas, save_path)
+    # plot_planes_of_roads(total_areas, save_path, road_network)
 
     road_network_topo_graph = create_routing_graph(road_network)
     # x = 251.93
     # y = -334.39
-    x = 131.55
-    y = 58.74
+    x = 63.17
+    y = 214.17
     # possible_match_point_dist = []
     # possible_match_points = []
     # for road_lanesc, area in total_areas.items():
@@ -802,9 +822,55 @@ def process_one_file(file, step=0.1):
     # print("*"*80)
     # print("road: {0}, lanesection_s0: {1:.2f}, s: {2:.2f}, t: {3:.2f}, x: {4:.2f}, y: {5:.2f}".format(road_id, lanesection_s0, match_point_s, match_point_t, x, y))
 
+    # 转换xy坐标到st坐标
     road_id, lanesection_s0, lane_id, match_point_s, match_point_t = get_map_st(road_network, total_areas, x, y)
-    print("road: {0}, lanesection_s0: {1:.2f}, lane_id: {2}, s: {3:.2f}, t: {4:.2f}, x: {5:.2f}, y: {6:.2f}".format(road_id, lanesection_s0, lane_id, match_point_s, match_point_t, x, y))
+    # print("road: {0}, lanesection_s0: {1:.2f}, lane_id: {2}, s: {3:.2f}, t: {4:.2f}, x: {5:.2f}, y: {6:.2f}".format(road_id, lanesection_s0, lane_id, match_point_s, match_point_t, x, y))
 
+    # 全局路径搜索
+    start_node = (15, 0, 1)
+    end_node = (19, 0, -1)
+    path, route_length = dijkstra_search(road_network_topo_graph, start_node, end_node)
+    # 是否打印全局路径
+    # print("*"*40)
+    # print("route_length: ", route_length)
+    # for path_node in path:
+    #     print(path_node)
+
+    # path = [None]
+    plot_planes_of_roads(total_areas, save_path, road_network, path)
+
+    # path_c = [(15, 0.0000000000000000, 1),
+    #             (13, 0.0000000000000000, -1),
+    #             (3, 0.0000000000000000, 1),
+    #             (92, 0.0000000000000000, -1),
+    #             (21, 0.0000000000000000, -1),
+    #             (188, 11.0000089866757804, 1),
+    #             (188, 0.0000000000000000, 1),
+    #             (22, 0.0000000000000000, -1),
+    #             (158, 0.0000000000000000, -1),
+    #             (4, 0.0000000000000000, -1),
+    #             (152, 0.0000000000000000, -1),
+    #             (152, 18.5157612478968083, -1),
+    #             (18, 0.0000000000000000, -1),
+    #             (107, 22.1149294346859904, 1),
+    #             (107, 11.0574647173430094, 1),
+    #             (107, 1.5045068184390971, 1),
+    #             (107, 0.0000000000000000, 1),
+    #             (19, 0.0000000000000000, -1)]
+    # path_c_length = 0.0
+    # for i in range(len(path_c)-1):
+    #     start_node = path_c[i]
+    #     end_node = path_c[i+1]
+    #     if road_network_topo_graph.has_edge(start_node, end_node):
+    #         # 如果边存在，获取这条边的length属性
+    #         length_value = road_network_topo_graph.get_edge_data(start_node, end_node).get('length', None)
+    #         path_c_length += length_value
+    #     else:
+    #         print(f"某些边不存在")
+    #         print(start_node)
+    #         print(end_node)
+    #         break
+    # print(path_c_length)
 
 def main():
     # Prepare the input file.
@@ -814,7 +880,7 @@ def main():
        for arg in sys.argv[1:]:
         XODR_FILE = sys.argv[1]
     else:
-        odr_name = "Town04.xodr"
+        odr_name = "Town01.xodr"
         XODR_FILE = os.path.join(odr_dir, odr_name)
         print(XODR_FILE)
     process_one_file(XODR_FILE)

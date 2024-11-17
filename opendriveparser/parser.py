@@ -2,6 +2,7 @@
 import numpy as np
 import networkx as nx
 from lxml import etree
+from queue import PriorityQueue
 
 from opendriveparser.elements.openDrive import OpenDrive
 from opendriveparser.elements.road import Road
@@ -517,4 +518,39 @@ def create_routing_graph(OpenDrive: OpenDrive):
                                         (connection.connectingRoad, connecting_lanesec.sPos, to_lane.id), length=lane_length)
                 # print(start_point[0], f"{start_point[1]:.5f}", start_point[2], end_point[0], f"{end_point[1]:.5f}", end_point[2], f"{lane_length:.5f}", sep=',')
 
-        return graph
+    return graph
+
+def dijkstra_search(graph, start, goal):
+    frontier = PriorityQueue()
+    frontier.put((0, start))
+    came_from = {}
+    cost_so_far = {}
+    came_from[start] = None
+    cost_so_far[start] = 0
+    path = []
+
+    while not frontier.empty():
+        weight, current = frontier.get()
+
+        if current == goal:
+            path_node = current
+            while path_node in came_from:
+                path.append(path_node)
+                if path_node == None:
+                    break
+                else:
+                    path_node = came_from[path_node]
+            break
+
+        out_edges = graph.out_edges(current, data=True)
+        for edge in out_edges:
+            curr, next, attrs = edge
+            length = attrs.get('length', float('inf'))
+            new_cost = cost_so_far[current] + length
+            if next not in cost_so_far or new_cost < cost_so_far[next]:
+                cost_so_far[next] = new_cost
+                priority = new_cost
+                frontier.put((priority, next))
+                came_from[next] = current
+
+    return path[::-1], cost_so_far[goal]
